@@ -11,5 +11,7 @@ cd four03bypass
 
 python3 code.py
 
+then give the required site and Path
+
 
 # Best of Luck!!!
