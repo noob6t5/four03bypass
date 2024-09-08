@@ -82,13 +82,14 @@ def main():
                     current_headers = {**base_headers, **headers}
                     future = executor.submit(send_request, method, test_url, current_headers)
                     future_to_request.append(future)
-        
-        # Process the completed requests as they finish
+    
         for future in as_completed(future_to_request):
             url, method, headers, status_code, content = future.result()
-            print(f'{method} {url} -> Status Code: {status_code}')
-            if status_code != 403:
-                print(f'Response Content: {content[:200]}...')  # Limit output for readability
+            # Show results only if status code is 200 or bypasses 403
+            if status_code == 200 or status_code != 403:
+                print(f'{method} {url} -> Status Code: {status_code}')
+                if status_code == 200:
+                    print(f'Response Content: {content[:200]}...')  # Limit output for readability
             time.sleep(0.5)  # Control rate limiting
 
 if __name__ == "__main__":
